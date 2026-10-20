@@ -52,13 +52,15 @@ Off by default. When enabled, Enter inserts a newline and Shift+Enter submits, l
 ### 1. Install the pi package
 
 ```bash
-pi install git:github.com/k7d/pi-ghostty-native-editor
+pi install npm:pi-ghostty-native-editor
 ```
+
+Or from git: `pi install git:github.com/k7d/pi-ghostty-native-editor`.
 
 To try it for one session without installing:
 
 ```bash
-pi -e git:github.com/k7d/pi-ghostty-native-editor
+pi -e npm:pi-ghostty-native-editor
 ```
 
 ### 2. Configure Ghostty
@@ -143,7 +145,7 @@ The extension replaces pi's prompt editor with a subclass of pi's built-in `Cust
 
 Copying uses pi's own clipboard helper, which uses the native clipboard locally and OSC 52 over SSH.
 
-The extension relies on some internal (non-public) details of pi's editor, so a future pi release could break it. If that happens, `pi remove git:github.com/k7d/pi-ghostty-native-editor` restores the default editor. Run `/native-editor remove-ghostty` first to restore Ghostty's keybindings too.
+The extension relies on some internal (non-public) details of pi's editor, so a future pi release could break it. If that happens, `pi remove npm:pi-ghostty-native-editor` restores the default editor. Run `/native-editor remove-ghostty` first to restore Ghostty's keybindings too.
 
 Tested with pi 1.3.0 and Ghostty 1.3.1 on macOS.
 
