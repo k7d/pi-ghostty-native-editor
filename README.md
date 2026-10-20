@@ -45,7 +45,7 @@ Only in pi's fullscreen mode, which is the default (`tuiMode: "fullscreen"`). In
 
 ### Optional: Enter inserts a newline, Shift+Enter submits
 
-Off by default. When enabled, Enter inserts a newline and Shift+Enter submits, like chat apps that are built for multi-line messages. With the autocomplete menu open, Enter still picks the highlighted item. See [Configuration](#configuration).
+Off by default. When enabled, Enter inserts a newline and Shift+Enter submits, like chat apps that are built for multi-line messages. Enter still runs single-line slash commands (like `/model`) and picks the highlighted item when the autocomplete menu is open. See [Configuration](#configuration).
 
 ## Installation
 

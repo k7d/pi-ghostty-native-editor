@@ -429,8 +429,9 @@ export class GhosttyNativeEditor extends CustomEditor {
 		}
 
 		if (this.settings.enterInsertsNewline) {
-			// Plain Enter: newline (unless the autocomplete menu is open, where Enter picks an item).
-			if (matchesKey(data, "enter") && !this.isShowingAutocomplete()) {
+			// Plain Enter: newline. Exceptions keep pi's behavior: the autocomplete menu is open
+			// (Enter picks an item), or the prompt is a single-line slash command (Enter runs it).
+			if (matchesKey(data, "enter") && !this.isShowingAutocomplete() && !this.isSlashCommand()) {
 				if (this.selection()) this.replaceSelection(() => I.addNewLine());
 				else I.addNewLine();
 				this.anchor = null;
@@ -518,6 +519,12 @@ export class GhosttyNativeEditor extends CustomEditor {
 		// Anything else (submit, history, app shortcuts, …): drop the selection and pass through.
 		this.anchor = null;
 		super.handleInput(data);
+	}
+
+	/** A single-line prompt starting with "/", e.g. "/model" or "/native-editor enter-newline on". */
+	private isSlashCommand(): boolean {
+		const lines = this.I.state.lines;
+		return lines.length === 1 && lines[0]!.startsWith("/");
 	}
 
 	private isInsertion(data: string, kb: ReturnType<typeof getKeybindings>): boolean {
