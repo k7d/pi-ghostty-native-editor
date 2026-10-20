@@ -1,0 +1,133 @@
+# pi-ghostty-native-editor
+
+macOS-style text editing for the prompt editor of the [pi coding agent](https://pi.dev), tuned for the [Ghostty](https://ghostty.org) terminal.
+
+pi's prompt editor uses Emacs-style keys and has no text selection. This extension makes it behave like a native macOS text field: select with Shift+arrows or the mouse, use Cmd+C / Cmd+X / Cmd+V / Cmd+Z / Cmd+A, and type over the selection to replace it.
+
+## Features
+
+### Selection
+
+| Keys | Action |
+|---|---|
+| Shift+← / → / ↑ / ↓ | Extend the selection by character or line |
+| Option+Shift+← / → (or Ctrl+Shift+← / →) | Extend by word |
+| Cmd+Shift+← / →, Shift+Home / End | Extend to line start / end |
+| Cmd+Shift+↑ / ↓ | Extend to the start / end of the prompt |
+| Cmd+A | Select all |
+| ← / → while text is selected | Collapse to the start / end of the selection |
+| Esc while text is selected | Clear the selection (instead of interrupting the agent) |
+
+### Editing
+
+| Keys | Action |
+|---|---|
+| Cmd+C | Copy the selection (Ctrl+C also copies when text is selected) |
+| Cmd+X | Cut |
+| Cmd+V | Paste; replaces the selection as one undo step |
+| Cmd+Z | Undo (pi's own Ctrl+- keeps working) |
+| Cmd+Shift+Z or Cmd+Y | Redo |
+| Cmd+← / → | Go to line start / end |
+| Cmd+↑ / ↓ | Go to the start / end of the prompt |
+| Typing, Backspace, Delete, Enter | Replace or delete the selection |
+
+### Mouse
+
+Only in pi's fullscreen mode, which is the default (`tuiMode: "fullscreen"`). In regular mode the terminal owns the mouse.
+
+| Gesture | Action |
+|---|---|
+| Click | Place the cursor |
+| Drag | Select text |
+| Double-click | Select a word |
+| Triple-click | Select a line |
+| Shift+click | Extend the selection (requires `mouse-shift-capture = true` in Ghostty) |
+
+### Optional: Enter inserts a newline, Shift+Enter submits
+
+Off by default. When enabled, Enter inserts a newline and Shift+Enter submits, like chat apps that are built for multi-line messages. With the autocomplete menu open, Enter still picks the highlighted item. See [Configuration](#configuration).
+
+## Installation
+
+### 1. Install the pi package
+
+```bash
+pi install git:github.com/k7d/pi-ghostty-native-editor
+```
+
+To try it for one session without installing:
+
+```bash
+pi -e git:github.com/k7d/pi-ghostty-native-editor
+```
+
+### 2. Configure Ghostty
+
+Ghostty handles Cmd+Z, Cmd+A, Cmd+X, Cmd+C, Cmd+↑/↓ and Shift+arrows itself, so pi never receives them. [`ghostty.conf`](ghostty.conf) in this package turns those bindings off or makes them conditional, so Ghostty forwards the keys to pi using the Kitty keyboard protocol.
+
+Add one line to your Ghostty config (`~/Library/Application Support/com.mitchellh.ghostty/config` or `~/.config/ghostty/config`). It must be an absolute path, and the leading `?` means Ghostty won't complain if the file is missing:
+
+```ini
+config-file = ?/Users/YOU/.pi/agent/git/github.com/k7d/pi-ghostty-native-editor/ghostty.conf
+```
+
+The path above is where `pi install git:...` clones the package. Adjust it if you installed it some other way, or copy the file next to your Ghostty config and include it from there.
+
+Reload Ghostty's config with Cmd+Shift+, (or restart Ghostty).
+
+What `ghostty.conf` changes:
+
+| Key | Ghostty default | With ghostty.conf |
+|---|---|---|
+| Cmd+Z, Cmd+Shift+Z | Undo / redo closing tabs and splits | Sent to the program |
+| Cmd+A | Select the whole screen | Sent to the program |
+| Cmd+X | (nothing) | Sent to the program |
+| Cmd+C | Copy Ghostty's selection | Copies Ghostty's selection if there is one, otherwise sent to the program |
+| Shift+arrows, Shift+Home/End | Adjust Ghostty's selection | Same if there is a Ghostty selection, otherwise sent to the program |
+| Cmd+↑ / ↓, Cmd+Shift+↑ / ↓ | Jump to the previous / next shell prompt | Sent to the program |
+
+Ghostty's defaults for Cmd+← / →, Option+← / → and Cmd+Backspace already work with pi and in the shell, so they are left alone. Programs that don't understand the forwarded keys, such as most shells, ignore them.
+
+## Configuration
+
+Settings are stored in `~/.pi/agent/ghostty-native-editor.json`. Change them with the `/native-editor` command, which applies right away:
+
+```text
+/native-editor                      show the current settings
+/native-editor enter-newline on     Enter inserts a newline, Shift+Enter submits
+/native-editor enter-newline off    Enter submits, Shift+Enter inserts a newline (default)
+```
+
+Or edit the file directly; it's read when pi starts:
+
+```json
+{
+	"enterInsertsNewline": true
+}
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `enterInsertsNewline` | `false` | Swap Enter and Shift+Enter: Enter inserts a newline and Shift+Enter submits. |
+
+Shift+Enter has to reach pi as its own key. Ghostty sends it correctly when pi enables the Kitty keyboard protocol, which pi does automatically. If you added `keybind = shift+enter=text:\x1b\r` for older pi versions, it still works.
+
+## Other terminals
+
+The extension itself is terminal-agnostic. Cmd shortcuts work in any terminal that forwards Cmd (the "super" modifier) through the [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), such as kitty (`map cmd+z no_op`, etc.) or WezTerm (with `enable_kitty_keyboard = true` and the default Cmd bindings disabled). Shift+arrow selection, mouse selection, Ctrl+C copy and the Enter swap work in most modern terminals without any configuration.
+
+Inside tmux, enable extended keys (`set -g extended-keys on`, plus `set -g extended-keys-format csi-u` on tmux 3.5+) so modifiers aren't dropped.
+
+## How it works
+
+The extension replaces pi's prompt editor with a subclass of pi's built-in `CustomEditor` (see pi's [`modal-editor.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/examples/extensions/modal-editor.ts) example). It adds a selection anchor, a redo stack, mouse handling and selection rendering on top of the base editor, and passes all other keys (app shortcuts, autocomplete, history, kill ring) through unchanged.
+
+Copying uses pi's own clipboard helper, which uses the native clipboard locally and OSC 52 over SSH.
+
+The extension relies on some internal (non-public) details of pi's editor, so a future pi release could break it. If that happens, `pi remove git:github.com/k7d/pi-ghostty-native-editor` restores the default editor.
+
+Tested with pi 1.3.0 and Ghostty 1.3.1 on macOS.
+
+## License
+
+[MIT](LICENSE)
