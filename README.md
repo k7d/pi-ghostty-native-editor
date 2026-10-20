@@ -65,15 +65,32 @@ pi -e git:github.com/k7d/pi-ghostty-native-editor
 
 Ghostty handles Cmd+Z, Cmd+A, Cmd+X, Cmd+C, Cmd+↑/↓ and Shift+arrows itself, so pi never receives them. [`ghostty.conf`](ghostty.conf) in this package turns those bindings off or makes them conditional, so Ghostty forwards the keys to pi using the Kitty keyboard protocol.
 
-Add one line to your Ghostty config (`~/Library/Application Support/com.mitchellh.ghostty/config` or `~/.config/ghostty/config`). It must be an absolute path, and the leading `?` means Ghostty won't complain if the file is missing:
+In pi, run:
 
-```ini
-config-file = ?/Users/YOU/.pi/agent/git/github.com/k7d/pi-ghostty-native-editor/ghostty.conf
+```text
+/native-editor configure-ghostty
 ```
 
-The path above is where `pi install git:...` clones the package. Adjust it if you installed it some other way, or copy the file next to your Ghostty config and include it from there.
+This copies the keybindings to `~/.pi/agent/ghostty-native-editor.ghostty` and adds an include for it to your Ghostty config (two lines, marked with a comment). It does nothing if the include is already there. If the `ghostty` CLI is available, the config is validated and the change is reverted when Ghostty rejects it. Then reload Ghostty's config with Cmd+Shift+, (or restart Ghostty).
 
-Reload Ghostty's config with Cmd+Shift+, (or restart Ghostty).
+To undo it:
+
+```text
+/native-editor remove-ghostty
+```
+
+The Ghostty config used is the last existing one of `$XDG_CONFIG_HOME/ghostty/config.ghostty`, `$XDG_CONFIG_HOME/ghostty/config`, and on macOS `~/Library/Application Support/com.mitchellh.ghostty/config.ghostty` and `.../config` (the same files Ghostty reads). If none exists, a new one is created.
+
+<details>
+<summary>Manual setup</summary>
+
+Add an include to your Ghostty config. Use an absolute path; the leading `?` makes the include optional:
+
+```ini
+config-file = ?/absolute/path/to/pi-ghostty-native-editor/ghostty.conf
+```
+
+</details>
 
 What `ghostty.conf` changes:
 
@@ -93,9 +110,11 @@ Ghostty's defaults for Cmd+← / →, Option+← / → and Cmd+Backspace already
 Settings are stored in `~/.pi/agent/ghostty-native-editor.json`. Change them with the `/native-editor` command, which applies right away:
 
 ```text
-/native-editor                      show the current settings
+/native-editor                      show the current settings and Ghostty status
 /native-editor enter-newline on     Enter inserts a newline, Shift+Enter submits
 /native-editor enter-newline off    Enter submits, Shift+Enter inserts a newline (default)
+/native-editor configure-ghostty    add the keybindings to the Ghostty config
+/native-editor remove-ghostty       remove them from the Ghostty config
 ```
 
 Or edit the file directly; it's read when pi starts:
@@ -124,7 +143,7 @@ The extension replaces pi's prompt editor with a subclass of pi's built-in `Cust
 
 Copying uses pi's own clipboard helper, which uses the native clipboard locally and OSC 52 over SSH.
 
-The extension relies on some internal (non-public) details of pi's editor, so a future pi release could break it. If that happens, `pi remove git:github.com/k7d/pi-ghostty-native-editor` restores the default editor.
+The extension relies on some internal (non-public) details of pi's editor, so a future pi release could break it. If that happens, `pi remove git:github.com/k7d/pi-ghostty-native-editor` restores the default editor. Run `/native-editor remove-ghostty` first to restore Ghostty's keybindings too.
 
 Tested with pi 1.3.0 and Ghostty 1.3.1 on macOS.
 

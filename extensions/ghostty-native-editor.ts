@@ -11,8 +11,10 @@
  * the /native-editor command. See README.md.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CustomEditor, copyToClipboard, type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 import {
 	CURSOR_MARKER,
@@ -91,6 +93,123 @@ function saveSettings(settings: Settings): void {
 }
 
 const cmp = (a: Pos, b: Pos) => (a.line - b.line) || (a.col - b.col);
+
+// ── Ghostty config ───────────────────────────────────────────────────
+
+/** Keybindings shipped with this package. */
+const packagedGhosttyConf = () => fileURLToPath(new URL("../ghostty.conf", import.meta.url));
+
+/** Stable copy referenced from the Ghostty config, so it survives package moves and temp installs. */
+const installedGhosttyConf = () => join(getAgentDir(), "ghostty-native-editor.ghostty");
+
+const GHOSTTY_MARKER = "# pi-ghostty-native-editor (added by /native-editor configure-ghostty)";
+
+/** Ghostty config files, in the order Ghostty loads them. Ghostty reads every one that exists. */
+function ghosttyConfigCandidates(): string[] {
+	const xdg = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+	const paths = [join(xdg, "ghostty", "config.ghostty"), join(xdg, "ghostty", "config")];
+	if (process.platform === "darwin") {
+		const appSupport = join(homedir(), "Library", "Application Support", "com.mitchellh.ghostty");
+		paths.push(join(appSupport, "config.ghostty"), join(appSupport, "config"));
+	}
+	return paths;
+}
+
+/** Config file to add the include to: the last existing one (it wins), or a new platform default. */
+function ghosttyConfigTarget(): string {
+	const candidates = ghosttyConfigCandidates();
+	const existing = candidates.filter((p) => existsSync(p));
+	if (existing.length > 0) return existing[existing.length - 1]!;
+	return process.platform === "darwin" ? candidates[candidates.length - 1]! : candidates[1]!;
+}
+
+/** True for lines this extension added or that include this package's keybindings. */
+const isOurGhosttyLine = (line: string) =>
+	line.trim() === GHOSTTY_MARKER ||
+	(/^\s*config-file\s*=/.test(line) &&
+		(line.includes("ghostty-native-editor.ghostty") || line.includes("pi-ghostty-native-editor/ghostty.conf")));
+
+/** Copy the packaged keybindings to the stable location when they changed (e.g. after a package update). */
+function syncInstalledGhosttyConf(): boolean {
+	const source = packagedGhosttyConf();
+	const target = installedGhosttyConf();
+	if (!existsSync(source)) throw new Error(`Missing ${source}`);
+	if (existsSync(target) && readFileSync(target, "utf8") === readFileSync(source, "utf8")) return false;
+	copyFileSync(source, target);
+	return true;
+}
+
+type ExecFn = ExtensionAPI["exec"];
+
+async function findGhosttyBinary(exec: ExecFn): Promise<string | undefined> {
+	const candidates = ["ghostty", "/Applications/Ghostty.app/Contents/MacOS/ghostty"];
+	for (const bin of candidates) {
+		try {
+			const result = await exec(bin, ["--version"], { timeout: 5000 });
+			if (result.code === 0) return bin;
+		} catch {
+			// not found
+		}
+	}
+	return undefined;
+}
+
+/** Returns an error message, or undefined when the config is valid or Ghostty isn't available to check. */
+async function validateGhosttyConfig(exec: ExecFn): Promise<string | undefined> {
+	const bin = await findGhosttyBinary(exec);
+	if (!bin) return undefined;
+	const result = await exec(bin, ["+validate-config"], { timeout: 10000 });
+	return result.code === 0 ? undefined : (result.stdout + result.stderr).trim() || `exit code ${result.code}`;
+}
+
+async function configureGhostty(exec: ExecFn): Promise<string> {
+	syncInstalledGhosttyConf();
+	const include = `config-file = ?${installedGhosttyConf()}`;
+
+	for (const path of ghosttyConfigCandidates()) {
+		if (!existsSync(path)) continue;
+		if (readFileSync(path, "utf8").split("\n").some((line) => line.trim() === include)) {
+			return `Ghostty is already configured (${path}).`;
+		}
+	}
+
+	const path = ghosttyConfigTarget();
+	const original = existsSync(path) ? readFileSync(path, "utf8") : undefined;
+	const base = original === undefined ? "" : original.endsWith("\n") || original === "" ? original : `${original}\n`;
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, `${base}${base ? "\n" : ""}${GHOSTTY_MARKER}\n${include}\n`);
+
+	const error = await validateGhosttyConfig(exec);
+	if (error) {
+		if (original === undefined) rmSync(path);
+		else writeFileSync(path, original);
+		throw new Error(`Ghostty rejected the config, change reverted:\n${error}`);
+	}
+	return `Added the keybindings include to ${path}. Reload Ghostty's config with Cmd+Shift+, (or restart Ghostty).`;
+}
+
+async function removeGhostty(exec: ExecFn): Promise<string> {
+	const changed: string[] = [];
+	for (const path of ghosttyConfigCandidates()) {
+		if (!existsSync(path)) continue;
+		const original = readFileSync(path, "utf8");
+		const lines = original.split("\n");
+		const kept = lines.filter((line) => !isOurGhosttyLine(line));
+		if (kept.length === lines.length) continue;
+		// Drop a blank line left behind where the block was appended.
+		let text = kept.join("\n").replace(/\n{3,}/g, "\n\n");
+		if (original.endsWith("\n") && !text.endsWith("\n")) text += "\n";
+		text = text.replace(/\n\n$/, "\n");
+		writeFileSync(path, text);
+		changed.push(path);
+	}
+	rmSync(installedGhosttyConf(), { force: true });
+
+	if (changed.length === 0) return "No Ghostty config changes to remove.";
+	const error = await validateGhosttyConfig(exec);
+	const warning = error ? `\nWarning: Ghostty reports config errors:\n${error}` : "";
+	return `Removed the keybindings include from ${changed.join(", ")}. Reload Ghostty's config with Cmd+Shift+, (or restart Ghostty).${warning}`;
+}
 
 export class GhosttyNativeEditor extends CustomEditor {
 	private anchor: Pos | null = null;
@@ -595,20 +714,60 @@ export default function (pi: ExtensionAPI) {
 			? "Enter inserts a newline, Shift+Enter submits"
 			: "Enter submits, Shift+Enter inserts a newline (pi default)";
 
+	pi.on("session_start", () => {
+		// Keep the installed copy of the keybindings current after package updates.
+		try {
+			if (existsSync(installedGhosttyConf())) syncInstalledGhosttyConf();
+		} catch {
+			// ignore
+		}
+	});
+
+	const exec: ExecFn = (command, args, options) => pi.exec(command, args, options);
+
+	const USAGE = [
+		"Usage:",
+		"  /native-editor                     show settings",
+		"  /native-editor enter-newline on    Enter inserts a newline, Shift+Enter submits",
+		"  /native-editor enter-newline off   Enter submits, Shift+Enter inserts a newline",
+		"  /native-editor configure-ghostty   add the keybindings to the Ghostty config",
+		"  /native-editor remove-ghostty      remove them from the Ghostty config",
+	].join("\n");
+
+	const ghosttyStatus = () => {
+		const include = `config-file = ?${installedGhosttyConf()}`;
+		const configured = ghosttyConfigCandidates().find(
+			(p) => existsSync(p) && readFileSync(p, "utf8").split("\n").some((line) => line.trim() === include),
+		);
+		return configured ? `configured in ${configured}` : "not configured (run /native-editor configure-ghostty)";
+	};
+
 	pi.registerCommand("native-editor", {
-		description: "Configure the native editor: /native-editor enter-newline on|off",
+		description: "Configure the native editor (Enter behavior, Ghostty keybindings)",
 		getArgumentCompletions: (prefix) =>
-			["enter-newline on", "enter-newline off"]
+			["enter-newline on", "enter-newline off", "configure-ghostty", "remove-ghostty"]
 				.filter((v) => v.startsWith(prefix))
 				.map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
 			const [option, value] = args.trim().split(/\s+/);
 			if (!option) {
-				ctx.ui.notify(`Native editor: ${describe()}. Settings: ${settingsPath()}`, "info");
+				ctx.ui.notify(
+					`Native editor\n  Enter: ${describe()}\n  Ghostty: ${ghosttyStatus()}\n  Settings: ${settingsPath()}`,
+					"info",
+				);
+				return;
+			}
+			if (option === "configure-ghostty" || option === "remove-ghostty") {
+				try {
+					const message = option === "configure-ghostty" ? await configureGhostty(exec) : await removeGhostty(exec);
+					ctx.ui.notify(message, "info");
+				} catch (error) {
+					ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+				}
 				return;
 			}
 			if (option !== "enter-newline" || (value !== "on" && value !== "off")) {
-				ctx.ui.notify("Usage: /native-editor enter-newline on|off", "warning");
+				ctx.ui.notify(USAGE, "warning");
 				return;
 			}
 			settings.enterInsertsNewline = value === "on";
