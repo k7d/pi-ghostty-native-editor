@@ -1,8 +1,15 @@
 {
   "name": "pi-ghostty-native-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "macOS-style text editing for the pi coding agent prompt in Ghostty: selection with Shift+arrows and mouse, Cmd+C/X/V/Z/A, redo, and optional Enter/Shift+Enter swap",
-  "keywords": ["pi-package", "pi", "pi-extension", "ghostty", "editor", "macos"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "ghostty",
+    "editor",
+    "macos"
+  ],
   "license": "MIT",
   "author": "Kaspars Dancis",
   "repository": {
@@ -11,9 +18,16 @@
   },
   "homepage": "https://github.com/k7d/pi-ghostty-native-editor#readme",
   "type": "module",
-  "files": ["extensions", "ghostty.conf", "README.md", "LICENSE"],
+  "files": [
+    "extensions",
+    "ghostty.conf",
+    "README.md",
+    "LICENSE"
+  ],
   "pi": {
-    "extensions": ["./extensions/ghostty-native-editor.ts"]
+    "extensions": [
+      "./extensions/ghostty-native-editor.ts"
+    ]
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
