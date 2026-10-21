@@ -112,12 +112,14 @@ Ghostty's defaults for Cmd+← / →, Option+← / → and Cmd+Backspace already
 Settings are stored in `~/.pi/agent/ghostty-native-editor.json`. Change them with the `/native-editor` command, which applies right away:
 
 ```text
-/native-editor                      show the current settings and Ghostty status
+/native-editor                      show the current settings and Ghostty status, and pick an option
 /native-editor enter-newline on     Enter inserts a newline, Shift+Enter submits
 /native-editor enter-newline off    Enter submits, Shift+Enter inserts a newline (default)
 /native-editor configure-ghostty    add the keybindings to the Ghostty config
 /native-editor remove-ghostty       remove them from the Ghostty config
 ```
+
+Typing `/native-editor ` (with the trailing space) lists these options in the autocomplete menu.
 
 Or edit the file directly; it's read when pi starts:
 

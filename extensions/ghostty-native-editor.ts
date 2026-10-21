@@ -60,6 +60,7 @@ interface Internals {
 	exitHistoryBrowsing(): void;
 	cancelAutocomplete(): void;
 	updateAutocomplete(): void;
+	tryTriggerAutocomplete(explicitTab?: boolean): void;
 	expandPasteMarkers(text: string): string;
 	buildVisualLineMap(width: number): VisualLine[];
 	findVisualLineAt(vls: VisualLine[], line: number, col: number): number;
@@ -415,6 +416,27 @@ export class GhosttyNativeEditor extends CustomEditor {
 	// ── keyboard ───────────────────────────────────────────────────────
 
 	handleInput(data: string): void {
+		const before = this.getText();
+		this.handleKey(data);
+		// Only when the text changed, so Escape can still dismiss the menu.
+		if (this.getText() !== before) this.showArgumentCompletions();
+	}
+
+	/**
+	 * pi only shows a command's argument completions once you type a letter after the space.
+	 * Show them as soon as the prompt is "/command " so the options are discoverable.
+	 */
+	private showArgumentCompletions(): void {
+		const I = this.I;
+		if (I.autocompleteState || I.isInPaste || this.selection()) return;
+		const { lines, cursorLine, cursorCol } = I.state;
+		const line = lines[0]!;
+		if (lines.length !== 1 || cursorLine !== 0 || cursorCol !== line.length) return;
+		if (!/^\/\S+ $/.test(line)) return;
+		I.tryTriggerAutocomplete();
+	}
+
+	private handleKey(data: string): void {
 		const I = this.I;
 		const kb = getKeybindings();
 
@@ -749,20 +771,36 @@ export default function (pi: ExtensionAPI) {
 		return configured ? `configured in ${configured}` : "not configured (run /native-editor configure-ghostty)";
 	};
 
+	const OPTIONS = [
+		{ value: "enter-newline on", description: "Enter inserts a newline, Shift+Enter submits" },
+		{ value: "enter-newline off", description: "Enter submits, Shift+Enter inserts a newline (pi default)" },
+		{ value: "configure-ghostty", description: "Add the keybindings to the Ghostty config" },
+		{ value: "remove-ghostty", description: "Remove the keybindings from the Ghostty config" },
+	];
+
 	pi.registerCommand("native-editor", {
-		description: "Configure the native editor (Enter behavior, Ghostty keybindings)",
-		getArgumentCompletions: (prefix) =>
-			["enter-newline on", "enter-newline off", "configure-ghostty", "remove-ghostty"]
-				.filter((v) => v.startsWith(prefix))
-				.map((value) => ({ value, label: value })),
+		description: "Native editor settings: enter-newline on|off, configure-ghostty, remove-ghostty",
+		getArgumentCompletions: (prefix) => {
+			const items = OPTIONS.filter((o) => o.value.startsWith(prefix.trimStart())).map((o) => ({
+				value: o.value,
+				label: o.value,
+				description: o.description,
+			}));
+			return items.length > 0 ? items : null;
+		},
 		handler: async (args, ctx) => {
-			const [option, value] = args.trim().split(/\s+/);
+			let [option, value] = args.trim().split(/\s+/);
 			if (!option) {
-				ctx.ui.notify(
-					`Native editor\n  Enter: ${describe()}\n  Ghostty: ${ghosttyStatus()}\n  Settings: ${settingsPath()}`,
-					"info",
-				);
-				return;
+				const status = `Native editor\n  Enter: ${describe()}\n  Ghostty: ${ghosttyStatus()}\n  Settings: ${settingsPath()}`;
+				if (ctx.mode !== "tui") {
+					ctx.ui.notify(`${status}\n\n${USAGE}`, "info");
+					return;
+				}
+				// No arguments: let the user pick an option, so they're discoverable.
+				const labels = OPTIONS.map((o) => `${o.value} — ${o.description}`);
+				const picked = await ctx.ui.select(`${status}\n`, labels);
+				if (!picked) return;
+				[option, value] = OPTIONS[labels.indexOf(picked)]!.value.split(" ");
 			}
 			if (option === "configure-ghostty" || option === "remove-ghostty") {
 				try {
